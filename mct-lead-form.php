@@ -17,7 +17,6 @@
 defined( 'ABSPATH' ) || die();
 
 define( 'MCT_PATH', dirname( __FILE__ ) );
-define( 'MCT_TEXT_DOMAIN', 'mct-lead-form' );
 
 require_once MCT_PATH . '/autoload.php';
 
