@@ -1,0 +1,16 @@
+{
+  "name": "pvtl/mct-lead-form",
+  "description": "A WordPress plugin for MCT for embedding lead forms.",
+  "homepage": "https://github.com/pvtl/mct-lead-form",
+  "license": "Private",
+  "authors": [
+    {
+      "name": "Pivotal Agency",
+      "homepage": "https://pivotal.agency"
+    }
+  ],
+  "type": "wordpress-plugin",
+  "require": {
+    "php": ">=7.2"
+  }
+}
