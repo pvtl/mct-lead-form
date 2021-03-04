@@ -7,6 +7,13 @@
 
 namespace MCT_Lead_Form\Classes;
 
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\RequestOptions;
+use WP_Error;
+use WP_REST_Response;
+use WP_REST_Server;
+
 /**
  * Class Form.
  *
@@ -19,17 +26,56 @@ class Form {
 	public const SHORTCODE = 'mct_lead_form';
 
 	/**
+	 * The REST API namespace.
+	 */
+	public const REST_API_ROUTE_NAMESPACE = 'mct';
+
+	/**
 	 * Array of shortcode attributes.
 	 *
 	 * @var array
 	 */
-	public $attributes = array();
+	protected $attributes = array();
+
+	/**
+	 * The API host.
+	 *
+	 * @var string
+	 */
+	protected $api_host;
+
+	/**
+	 * The API key.
+	 *
+	 * @var string
+	 */
+	protected $api_token;
 
 	/**
 	 * Constructor.
+	 *
+	 * @throws \InvalidArgumentException On missing MCT API config.
 	 */
 	public function __construct() {
 		add_shortcode( self::SHORTCODE, array( $this, 'shortcode' ) );
+
+		add_action( 'rest_api_init', array( $this, 'register_api_endpoints' ) );
+
+		if ( defined( 'MCT_API_HOST' ) ) {
+			$this->api_host = rtrim( MCT_API_HOST, '/' ) . '/';
+		}
+
+		if ( defined( 'MCT_API_TOKEN' ) ) {
+			$this->api_token = trim( MCT_API_TOKEN );
+		}
+
+		if ( ! $this->api_host ) {
+			throw new \InvalidArgumentException( 'Missing required MCT API host' );
+		}
+
+		if ( ! $this->api_token ) {
+			throw new \InvalidArgumentException( 'Missing required MCT API key' );
+		}
 	}
 
 	/**
@@ -43,6 +89,66 @@ class Form {
 		}
 
 		return $instance;
+	}
+
+	/**
+	 * Get the Guzzle Client with default headers.
+	 *
+	 * @return \GuzzleHttp\Client
+	 */
+	protected function get_http_client() {
+		static $http_client = null;
+
+		if ( null === $http_client ) {
+			$http_client = new GuzzleClient(
+				array(
+					'base_uri' => $this->api_host,
+					'headers' => array(
+						'Accept' => 'application/json',
+						'Content-Type' => 'application/json',
+						'Authorization' => 'Bearer ' . $this->api_token,
+					),
+				)
+			);
+		}
+
+		return $http_client;
+	}
+
+	/**
+	 * Send an API request.
+	 *
+	 * @param string $method   The HTTP method.
+	 * @param string $endpoint The API endpoint.
+	 * @param array  $params   The body parameters.
+	 *
+	 * @return WP_REST_Response|WP_Error
+	 */
+	protected function api_request( $method, $endpoint, $params = array() ) {
+		try {
+			$params['business_id'] = MCT_API_BUSINESS_ID;
+
+			error_log( print_r(array( RequestOptions::JSON => $params ), 1) );
+
+			$response = $this->get_http_client()
+				->request(
+					$method,
+					ltrim( $endpoint, '/' ),
+					array( RequestOptions::JSON => $params )
+				)
+				->getBody()
+				->getContents();
+		} catch ( RequestException $e ) {
+			$response = $e->getResponse()
+				->getBody()
+				->getContents();
+		} catch ( \Throwable $e ) {
+			error_log( $e );
+
+			return new WP_Error( $e->getMessage() );
+		}
+
+		return new WP_REST_Response( json_decode( $response ) );
 	}
 
 	/**
@@ -69,6 +175,8 @@ class Form {
 
 			return null;
 		}
+
+		wp_enqueue_script( 'mct-app', MCT_URL . 'assets/dist/js/app.js', array(), MCT_VERSION, true );
 
 		ob_start();
 
@@ -110,5 +218,54 @@ class Form {
 			$attributes,
 			self::SHORTCODE
 		);
+	}
+
+	/**
+	 * Register additional REST API endpoints.
+	 */
+	public function register_api_endpoints() {
+		register_rest_route(
+			static::REST_API_ROUTE_NAMESPACE,
+			'leads',
+			array(
+				'methods'  => WP_REST_Server::CREATABLE,
+				'callback' => array( $this, 'route_create_lead' ),
+			)
+		);
+
+		register_rest_route(
+			static::REST_API_ROUTE_NAMESPACE,
+			'leads/(?P<id>\d+)',
+			array(
+				'methods'  => WP_REST_Server::EDITABLE,
+				'callback' => array( $this, 'route_update_lead' ),
+			)
+		);
+	}
+
+	/**
+	 * Handle submission of lead create form.
+	 *
+	 * @return \WP_REST_Response|WP_Error
+	 */
+	public function route_create_lead() {
+		$data = json_decode( file_get_contents( 'php://input' ), true );
+
+		return $this->api_request( 'POST', 'leads', $data );
+	}
+
+	/**
+	 * Handle submission of lead update form.
+	 *
+	 * @param array $data The URL parameter data.
+	 *
+	 * @return \WP_REST_Response|WP_Error
+	 */
+	public function route_update_lead( $data ) {
+		$id = (int) $data['id'];
+
+		$data = json_decode( file_get_contents( 'php://input' ), true );
+
+		return $this->api_request( 'PATCH', "leads/{$id}", $data );
 	}
 }

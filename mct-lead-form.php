@@ -16,7 +16,9 @@
 
 defined( 'ABSPATH' ) || die();
 
+define( 'MCT_VERSION', 1.0 );
 define( 'MCT_PATH', dirname( __FILE__ ) );
+define( 'MCT_URL', plugin_dir_url( __FILE__ ) );
 
 require_once MCT_PATH . '/autoload.php';
 
