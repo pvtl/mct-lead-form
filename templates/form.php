@@ -106,7 +106,7 @@
 		<div class="form-group">
 			<select class="<?php echo esc_attr( $this->attr( 'input_class' ) ); ?>" name="vehicle_transmission" aria-label="Vehicle transmission" required>
 				<option value="" selected hidden>Vehicle transmission *</option>
-				<option value="Automation">Automation</option>
+				<option value="Automatic">Automatic</option>
 				<option value="Manual">Manual</option>
 			</select>
 			<div class="invalid-feedback"></div>
