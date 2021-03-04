@@ -60,7 +60,7 @@
 
 		<div class="form-group">
 			<input type="text" class="<?php echo esc_attr( $this->attr( 'input_class' ) ); ?>" name="vehicle_rego"
-				placeholder="Vehicle rego" aria-label="Vehicle rego" autocomplete="off">
+				placeholder="Vehicle rego" aria-label="Vehicle rego" autocomplete="off" autocapitalize="characters">
 			<div class="invalid-feedback"></div>
 		</div>
 
