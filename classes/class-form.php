@@ -178,12 +178,28 @@ class Form {
 
 		wp_enqueue_script( 'mct-app', MCT_URL . 'assets/dist/js/app.js', array(), MCT_VERSION, true );
 
+        $campaign_data = $this->get_tracking_data_from_request();
 		ob_start();
 
 		include $template_path;
 
 		return ob_get_clean();
 	}
+
+    /**
+     * Gets tracking data from google leads & referrer from the request.
+     *
+     * @return array
+     */
+    private function get_tracking_data_from_request()
+    {
+        return array_filter( [
+            'source' => isset( $_GET['utm_source'] ) ? $_GET['utm_source'] : 'Organic',
+            'campaign' => isset( $_GET['utm_campaign'] ) ? $_GET['utm_campaign'] : null,
+            'additional_data' => isset( $_GET['utm_term'] ) ? $_GET['utm_term'] : null,
+            'referrer_url' => isset( $_SERVER['HTTP_REFERER'] ) ? $_SERVER['HTTP_REFERER'] : null,
+        ] );
+    }
 
 	/**
 	 * Get an attribute value.
