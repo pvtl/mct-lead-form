@@ -104,8 +104,8 @@ class Form {
 				array(
 					'base_uri' => $this->api_host,
 					'headers' => array(
-						'Accept' => 'application/json',
-						'Content-Type' => 'application/json',
+						'Accept'        => 'application/json',
+						'Content-Type'  => 'application/json',
 						'Authorization' => 'Bearer ' . $this->api_token,
 					),
 				)
@@ -128,7 +128,7 @@ class Form {
 		try {
 			$params['business_id'] = MCT_API_BUSINESS_ID;
 
-			error_log( print_r(array( RequestOptions::JSON => $params ), 1) );
+			error_log( print_r( array( RequestOptions::JSON => $params ), 1) );
 
 			$response = $this->get_http_client()
 				->request(
@@ -142,6 +142,8 @@ class Form {
 			$response = $e->getResponse()
 				->getBody()
 				->getContents();
+
+			error_log( $response );
 		} catch ( \Throwable $e ) {
 			error_log( $e );
 
