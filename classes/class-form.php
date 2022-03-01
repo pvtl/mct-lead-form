@@ -247,8 +247,9 @@ class Form {
 			static::REST_API_ROUTE_NAMESPACE,
 			'leads',
 			array(
-				'methods'  => WP_REST_Server::CREATABLE,
-				'callback' => array( $this, 'route_create_lead' ),
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'route_create_lead' ),
+				'permission_callback' => '__return_true',
 			)
 		);
 
@@ -256,8 +257,9 @@ class Form {
 			static::REST_API_ROUTE_NAMESPACE,
 			'leads/(?P<id>\d+)',
 			array(
-				'methods'  => WP_REST_Server::EDITABLE,
-				'callback' => array( $this, 'route_update_lead' ),
+				'methods'             => WP_REST_Server::EDITABLE,
+				'callback'            => array( $this, 'route_update_lead' ),
+				'permission_callback' => '__return_true',
 			)
 		);
 	}
