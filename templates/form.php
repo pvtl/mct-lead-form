@@ -17,9 +17,17 @@
 	<form data-mct-stage="1" data-method="POST" data-endpoint="leads"
 		data-nonce="<?php echo esc_attr( wp_create_nonce( 'wp_rest' ) ); ?>">
 
-		<?php foreach( $campaign_data as $datem_name => $datem_value ) { ?>
-			<input type="hidden" name="<?php echo $datem_name ?>" value="<?php echo $datem_value ?>" />
-		<?php } ?>
+		<?php
+
+        $campaign_data = apply_filters( 'mct_tracking_data', $this->get_tracking_data() );
+
+		foreach ( $campaign_data as $key => $value ) {
+			?>
+			<input type="hidden" name="<?php echo esc_attr( $key ); ?>" value="<?php echo esc_attr( $value ); ?>">
+			<?php
+		}
+
+		?>
 
 		<div class="form-group">
 			<input type="text" class="<?php echo esc_attr( $this->attr( 'input_class' ) ); ?>" name="full_name" placeholder="Full Name *" aria-label="Full Name" autocomplete="name" autocapitalize="words" required>
