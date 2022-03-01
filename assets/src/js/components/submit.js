@@ -49,18 +49,22 @@ const sendRequest = async (container, form) => {
       return;
     }
 
+    window.dataLayer = window.dataLayer || [];
+
     if (stage === 1) {
-      if (window.dataLayer) {
-        dataLayer.push({ 'event': 'step1success' });
-      }
+      const email = form.querySelector('[name="email"]').value;
+
+      setState({ email });
+
+      dataLayer.push({ 'event': 'step1success', email });
 
       form.dataset.endpoint = container.querySelector('[data-mct-stage="2"]').dataset.endpoint;
     }
 
     if (stage === 2) {
-      if (window.dataLayer) {
-        dataLayer.push({ 'event': 'step2success' });
-      }
+      const { email } = getState();
+
+      dataLayer.push({ 'event': 'step2success', email });
 
       window.location = container.dataset.redirect;
 

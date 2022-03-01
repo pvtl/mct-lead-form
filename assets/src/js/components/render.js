@@ -54,6 +54,13 @@ const showErrors = (container) => {
 
   Object.keys(errors).forEach((error) => {
     const input = form.querySelector(`[name="${error}"]`);
+
+    if (!input) {
+      console.warn('input not found', error);
+
+      return;
+    }
+
     const formGroup = input.parentElement;
     const feedback = formGroup.querySelector('.invalid-feedback');
 

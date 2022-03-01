@@ -6,6 +6,7 @@ let state = {
   buttons: {},
   errorMessage: null,
   errors: null,
+  email: null,
 };
 
 const getState = () => state;
