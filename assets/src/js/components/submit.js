@@ -56,15 +56,14 @@ const sendRequest = async (container, form) => {
 
       setState({ email });
 
-      dataLayer.push({ 'event': 'step1success', email });
+      dataLayer.push({ email });
+      dataLayer.push({ 'event': 'step1success' });
 
       form.dataset.endpoint = container.querySelector('[data-mct-stage="2"]').dataset.endpoint;
     }
 
     if (stage === 2) {
-      const { email } = getState();
-
-      dataLayer.push({ 'event': 'step2success', email });
+      dataLayer.push({ 'event': 'step2success' });
 
       window.location = container.dataset.redirect;
 
