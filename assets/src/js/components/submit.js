@@ -67,7 +67,13 @@ const sendRequest = async (container, form) => {
 
       const { email } = getState();
 
-      window.location = `${container.dataset.redirect}?email=${encodeURIComponent(email)}`;
+      try {
+        window.localStorage.setItem('mct-lead-form-email', email);
+      } catch (e) {
+        console.warn(e);
+      }
+
+      window.location = container.dataset.redirect;
 
       return;
     }
