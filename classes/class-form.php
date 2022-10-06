@@ -126,7 +126,9 @@ class Form {
 	 */
 	protected function api_request( $method, $endpoint, $params = array() ) {
 		try {
-			$params['business_id'] = MCT_API_BUSINESS_ID;
+			if ( ! isset( $params['business_id'] ) ) {
+				$params['business_id'] = MCT_API_BUSINESS_ID;
+			}
 
 			error_log( print_r( array( RequestOptions::JSON => $params ), 1) );
 
