@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Lead Form actions.
  *
@@ -19,7 +20,8 @@ use WP_REST_Server;
  *
  * @package MCT_Lead_Form\Classes
  */
-class Form {
+class Form
+{
 	/**
 	 * The shortcode name.
 	 */
@@ -29,6 +31,16 @@ class Form {
 	 * The REST API namespace.
 	 */
 	public const REST_API_ROUTE_NAMESPACE = 'mct';
+
+	/**
+	 * Failed Log
+	 */
+	public const FAILED_SUBMISSIONS_LOG = '/app/mct-lead-form-logs/failed_log';
+
+	/**
+	 * Success Log
+	 */
+	public const SUCCESS_SUBMISSIONS_LOG =  '/app/mct-lead-form-logs/success_log';
 
 	/**
 	 * Array of shortcode attributes.
@@ -56,37 +68,39 @@ class Form {
 	 *
 	 * @throws \InvalidArgumentException On missing MCT API config.
 	 */
-	public function __construct() {
-		add_shortcode( self::SHORTCODE, array( $this, 'shortcode' ) );
+	public function __construct()
+	{
+		add_shortcode(self::SHORTCODE, array($this, 'shortcode'));
 
-		add_action( 'rest_api_init', array( $this, 'register_api_endpoints' ) );
+		add_action('rest_api_init', array($this, 'register_api_endpoints'));
 
 		add_action('wp_verify_nonce_failed', array($this, 'log_nonce_failed'), 10, 4);
 
-		if ( defined( 'MCT_API_HOST' ) ) {
-			$this->api_host = rtrim( MCT_API_HOST, '/' ) . '/';
+		if (defined('MCT_API_HOST')) {
+			$this->api_host = rtrim(MCT_API_HOST, '/') . '/';
 		}
 
-		if ( defined( 'MCT_API_TOKEN' ) ) {
-			$this->api_token = trim( MCT_API_TOKEN );
+		if (defined('MCT_API_TOKEN')) {
+			$this->api_token = trim(MCT_API_TOKEN);
 		}
 
-		if ( ! $this->api_host ) {
-			throw new \InvalidArgumentException( 'Missing required MCT API host' );
+		if (!$this->api_host) {
+			throw new \InvalidArgumentException('Missing required MCT API host');
 		}
 
-		if ( ! $this->api_token ) {
-			throw new \InvalidArgumentException( 'Missing required MCT API key' );
+		if (!$this->api_token) {
+			throw new \InvalidArgumentException('Missing required MCT API key');
 		}
 	}
 
 	/**
 	 * Initialise the instance.
 	 */
-	public static function init() {
+	public static function init()
+	{
 		static $instance = null;
 
-		if ( null === $instance ) {
+		if (null === $instance) {
 			$instance = new static();
 		}
 
@@ -98,10 +112,11 @@ class Form {
 	 *
 	 * @return \GuzzleHttp\Client
 	 */
-	protected function get_http_client() {
+	protected function get_http_client()
+	{
 		static $http_client = null;
 
-		if ( null === $http_client ) {
+		if (null === $http_client) {
 			$http_client = new GuzzleClient(
 				array(
 					'base_uri' => $this->api_host,
@@ -126,35 +141,36 @@ class Form {
 	 *
 	 * @return WP_REST_Response|WP_Error
 	 */
-	protected function api_request( $method, $endpoint, $params = array() ) {
+	protected function api_request($method, $endpoint, $params = array())
+	{
 		try {
-			if ( ! isset( $params['business_id'] ) ) {
+			if (!isset($params['business_id'])) {
 				$params['business_id'] = MCT_API_BUSINESS_ID;
 			}
 
-			error_log( print_r( array( RequestOptions::JSON => $params ), 1) );
+			$this->log(print_r(array(RequestOptions::JSON => $params), 1), 'success');
 
 			$response = $this->get_http_client()
 				->request(
 					$method,
-					ltrim( $endpoint, '/' ),
-					array( RequestOptions::JSON => $params )
+					ltrim($endpoint, '/'),
+					array(RequestOptions::JSON => $params)
 				)
 				->getBody()
 				->getContents();
-		} catch ( RequestException $e ) {
+		} catch (RequestException $e) {
 			$response = $e->getResponse()
 				->getBody()
 				->getContents();
 
-			error_log( $response );
-		} catch ( \Throwable $e ) {
-			error_log( $e );
+			$this->log($response);
+		} catch (\Throwable $e) {
+			$this->log($e);
 
-			return new WP_Error( $e->getMessage() );
+			return new WP_Error($e->getMessage());
 		}
 
-		return new WP_REST_Response( json_decode( $response ) );
+		return new WP_REST_Response(json_decode($response));
 	}
 
 	/**
@@ -164,25 +180,26 @@ class Form {
 	 *
 	 * @return string
 	 */
-	public function shortcode( $attributes ) {
-		$this->attributes = self::parse_attributes( $attributes );
+	public function shortcode($attributes)
+	{
+		$this->attributes = self::parse_attributes($attributes);
 
 		$template_path = MCT_PATH . '/templates/form.php';
-		$override_path = locate_template( 'mct/form.php' );
+		$override_path = locate_template('mct/form.php');
 
-		if ( $override_path ) {
+		if ($override_path) {
 			$template_path = $override_path;
 		}
 
-		$template_path = apply_filters( 'mct_template_path', $template_path );
+		$template_path = apply_filters('mct_template_path', $template_path);
 
-		if ( ! file_exists( $template_path ) ) {
-			error_log( sprintf( 'MCT template path "%s" could not be found.', $template_path ) );
+		if (!file_exists($template_path)) {
+			$this->log(sprintf('MCT template path "%s" could not be found.', $template_path));
 
 			return null;
 		}
 
-		wp_enqueue_script( 'mct-app', MCT_URL . 'assets/dist/js/app.js', array(), MCT_VERSION, true );
+		wp_enqueue_script('mct-app', MCT_URL . 'assets/dist/js/app.js', array(), MCT_VERSION, true);
 
 		ob_start();
 
@@ -191,22 +208,22 @@ class Form {
 		return ob_get_clean();
 	}
 
-    /**
-     * Gets tracking data from google leads and referrer from the request.
-     *
-     * @return array
-     */
-    public function get_tracking_data()
-    {
+	/**
+	 * Gets tracking data from google leads and referrer from the request.
+	 *
+	 * @return array
+	 */
+	public function get_tracking_data()
+	{
 		$data = array(
-			'source' => isset( $_GET['utm_source'] ) ? $_GET['utm_source'] : 'Organic',
-			'campaign' => isset( $_GET['utm_campaign'] ) ? $_GET['utm_campaign'] : null,
-			'additional_data' => isset( $_GET['utm_term'] ) ? $_GET['utm_term'] : null,
-			'referrer_url' => isset( $_SERVER['HTTP_REFERER'] ) ? $_SERVER['HTTP_REFERER'] : null,
+			'source' => isset($_GET['utm_source']) ? $_GET['utm_source'] : 'Organic',
+			'campaign' => isset($_GET['utm_campaign']) ? $_GET['utm_campaign'] : null,
+			'additional_data' => isset($_GET['utm_term']) ? $_GET['utm_term'] : null,
+			'referrer_url' => isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : null,
 		);
 
-        return array_filter( $data );
-    }
+		return array_filter($data);
+	}
 
 	/**
 	 * Get an attribute value.
@@ -216,9 +233,10 @@ class Form {
 	 *
 	 * @return mixed
 	 */
-	public function attr( $name, $default = null ) {
-		return isset( $this->attributes[ $name ] )
-			? $this->attributes[ $name ]
+	public function attr($name, $default = null)
+	{
+		return isset($this->attributes[$name])
+			? $this->attributes[$name]
 			: $default;
 	}
 
@@ -229,12 +247,13 @@ class Form {
 	 *
 	 * @return array
 	 */
-	protected static function parse_attributes( $attributes = array() ) {
+	protected static function parse_attributes($attributes = array())
+	{
 		return shortcode_atts(
 			array(
-				'heading_text' => __( 'We can buy your car today!', 'mct-lead-form' ),
-				'intro_text'   => __( 'Get your free valuation by completing this quick form.', 'mct-lead-form' ),
-				'button_text'  => __( 'Get Your Free Valuation', 'mct-lead-form' ),
+				'heading_text' => __('We can buy your car today!', 'mct-lead-form'),
+				'intro_text'   => __('Get your free valuation by completing this quick form.', 'mct-lead-form'),
+				'button_text'  => __('Get Your Free Valuation', 'mct-lead-form'),
 				'input_class'  => 'form-control',
 				'button_class' => 'btn btn-primary',
 			),
@@ -246,13 +265,14 @@ class Form {
 	/**
 	 * Register additional REST API endpoints.
 	 */
-	public function register_api_endpoints() {
+	public function register_api_endpoints()
+	{
 		register_rest_route(
 			static::REST_API_ROUTE_NAMESPACE,
 			'leads',
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array( $this, 'route_create_lead' ),
+				'callback'            => array($this, 'route_create_lead'),
 				'permission_callback' => '__return_true',
 			)
 		);
@@ -262,7 +282,7 @@ class Form {
 			'leads/(?P<id>\d+)',
 			array(
 				'methods'             => WP_REST_Server::EDITABLE,
-				'callback'            => array( $this, 'route_update_lead' ),
+				'callback'            => array($this, 'route_update_lead'),
 				'permission_callback' => '__return_true',
 			)
 		);
@@ -273,10 +293,11 @@ class Form {
 	 *
 	 * @return \WP_REST_Response|WP_Error
 	 */
-	public function route_create_lead() {
-		$data = json_decode( file_get_contents( 'php://input' ), true );
+	public function route_create_lead()
+	{
+		$data = json_decode(file_get_contents('php://input'), true);
 
-		return $this->api_request( 'POST', 'leads', $data );
+		return $this->api_request('POST', 'leads', $data);
 	}
 
 	/**
@@ -286,12 +307,13 @@ class Form {
 	 *
 	 * @return \WP_REST_Response|WP_Error
 	 */
-	public function route_update_lead( $data ) {
+	public function route_update_lead($data)
+	{
 		$id = (int) $data['id'];
 
-		$data = json_decode( file_get_contents( 'php://input' ), true );
+		$data = json_decode(file_get_contents('php://input'), true);
 
-		return $this->api_request( 'PATCH', "leads/{$id}", $data );
+		return $this->api_request('PATCH', "leads/{$id}", $data);
 	}
 
 	/**
@@ -310,17 +332,16 @@ class Form {
 		if ('wp_rest' === $action && strpos($_SERVER['REQUEST_URI'], '/mct/leads') !== false) {
 			$data = json_decode(file_get_contents('php://input'), true);
 
-			// log error
-			error_log(print_r(array('Error [403]: Cookie check failed (rest_cookie_invalid_nonce).', $data), 1));
+			$this->log(print_r(array('Error [403]: Cookie check failed (rest_cookie_invalid_nonce).', $data), 1));
 
 			// Email administrator
 			$name = get_bloginfo('name');
-			$link = get_bloginfo( 'url' );
+			$link = get_bloginfo('url');
 			$admin_email = get_bloginfo('admin_email');
 
 			$find = 'http://';
 			$replace = '';
-			$domain = str_replace( $find, $replace, $link );
+			$domain = str_replace($find, $replace, $link);
 
 			$to = $admin_email ?? 'tech@pvtl.io';
 			$subject = 'Leads Form submission failed by ' . $data['full_name'];
@@ -331,11 +352,23 @@ class Form {
 			$body .= '<p><i>Error [403]: Cookie check failed (rest_cookie_invalid_nonce).</i></p>';
 			$headers = array(
 				'Content-Type: text/html; charset=UTF-8',
-				'From: '.$name.' <noreply@'.$domain.'>',
-				'Reply-To: '.$name.' <noreply@'.$domain.'>'
+				'From: ' . $name . ' <noreply@' . $domain . '>',
+				'Reply-To: ' . $name . ' <noreply@' . $domain . '>'
 			);
 			// send email
 			wp_mail($to, $subject, $body, $headers);
 		}
+	}
+
+	/**
+	 * Log Submissions
+	 */
+	public function log($message, $type = 'error')
+	{
+		$message = "\n" . date('[d-M-Y H:i:s T]') . " " . $message;
+		$log_file = ('error' === $type) ? getcwd() . static::FAILED_SUBMISSIONS_LOG : getcwd() . static::SUCCESS_SUBMISSIONS_LOG;
+
+		// log error
+		error_log($message, 3, $log_file);
 	}
 }

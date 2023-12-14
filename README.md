@@ -19,6 +19,9 @@ MCT_API_TOKEN='{API TOKEN}'
 MCT_API_BUSINESS_ID={API BUSINESS ID}
 MCT_LEAD_FORM_REDIRECT='{WP SLUG THANK YOU PAGE}' ///valuation-thank-you/
 ```
+#### 5. Edit .env file and paste code below, replace values (@sinc 1.3.7)
+5.1 Run `cd /projects/{project name}/web/app`
+5.2 Run `mkdir mct-lead-form-logs` to create new folder for mct logs
 
 ---
 
