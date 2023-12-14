@@ -61,6 +61,8 @@ class Form {
 
 		add_action( 'rest_api_init', array( $this, 'register_api_endpoints' ) );
 
+		add_action('wp_verify_nonce_failed', array($this, 'log_nonce_failed'), 10, 4);
+
 		if ( defined( 'MCT_API_HOST' ) ) {
 			$this->api_host = rtrim( MCT_API_HOST, '/' ) . '/';
 		}
@@ -290,5 +292,50 @@ class Form {
 		$data = json_decode( file_get_contents( 'php://input' ), true );
 
 		return $this->api_request( 'PATCH', "leads/{$id}", $data );
+	}
+
+	/**
+	 * Fires when nonce verification fails.
+	 *
+	 * @since 4.4.0
+	 *
+	 * @param string     $nonce  The invalid nonce.
+	 * @param string|int $action The nonce action.
+	 * @param WP_User    $user   The current user object.
+	 * @param string     $token  The user's session token.
+	 */
+	public function log_nonce_failed($nonce, $action, $user, $token)
+	{
+		// only log if wp_rest and request url has mct/leads
+		if ('wp_rest' === $action && strpos($_SERVER['REQUEST_URI'], '/mct/leads') !== false) {
+			$data = json_decode(file_get_contents('php://input'), true);
+
+			// log error
+			error_log(print_r(array('Error [403]: Cookie check failed (rest_cookie_invalid_nonce).', $data), 1));
+
+			// Email administrator
+			$name = get_bloginfo('name');
+			$link = get_bloginfo( 'url' );
+			$admin_email = get_bloginfo('admin_email');
+
+			$find = 'http://';
+			$replace = '';
+			$domain = str_replace( $find, $replace, $link );
+
+			$to = $admin_email ?? 'tech@pvtl.io';
+			$subject = 'Leads Form submission failed by ' . $data['full_name'];
+			$body = '<h3>Failed lead form submission</h3>';
+			foreach ($data as $key => $value) {
+				$body .= '<p><strong>' . ucfirst($key) . '</strong>: ' . $value . '</p>';
+			}
+			$body .= '<p><i>Error [403]: Cookie check failed (rest_cookie_invalid_nonce).</i></p>';
+			$headers = array(
+				'Content-Type: text/html; charset=UTF-8',
+				'From: '.$name.' <noreply@'.$domain.'>',
+				'Reply-To: '.$name.' <noreply@'.$domain.'>'
+			);
+			// send email
+			wp_mail($to, $subject, $body, $headers);
+		}
 	}
 }
