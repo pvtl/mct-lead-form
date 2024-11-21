@@ -215,11 +215,51 @@ class Form
 	 */
 	public function get_tracking_data()
 	{
+		$utmSource = 'Organic';
+		$utmCampaign = null;
+		$utmTerm = null;
+
+		$referrerUrl = null;
+		if ($_SERVER['HTTP_REFERER'] ?? false) {
+			$referrerUrl = $_SERVER['HTTP_REFERER'];
+
+			// Get query parameters from the referrer url
+			$parts = parse_url($referrerUrl);
+			$parameters = $parts['query'] ?? '';
+			parse_str($parameters, $query);
+
+			$utmSource = $query['utm_source'] ?? $utmSource;
+			$utmCampaign = $query['utm_campaign'] ?? $utmCampaign;
+			$utmTerm = $query['utm_term'] ?? $utmTerm;
+		}
+
+		if ($_GET['utm_source'] ?? false) {
+			$utmSource = $_GET['utm_source'];
+			if(is_array($utmSource)) {
+				$utmSource = $utmSource[0];
+			}
+		}
+
+		if ($_GET['utm_campaign'] ?? false) {
+			$utmCampaign = $_GET['utm_campaign'];
+			if(is_array($utmCampaign)) {
+				$utmCampaign = $utmCampaign[0];
+			}
+		}
+
+		if ($_GET['utm_term'] ?? false) {
+			$utmTerm = $_GET['utm_term'];
+			if(is_array($utmTerm)) {
+				$utmTerm = $utmTerm[0];
+			}
+		}
+
 		$data = array(
-			'source' => isset($_GET['utm_source']) ? $_GET['utm_source'] : 'Organic',
-			'campaign' => isset($_GET['utm_campaign']) ? $_GET['utm_campaign'] : null,
-			'additional_data' => isset($_GET['utm_term']) ? $_GET['utm_term'] : null,
-			'referrer_url' => isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : null,
+			'source' => $utmSource,
+			'campaign' => $utmCampaign,
+			'additional_data' => $utmTerm,
+			'referrer_url' => $referrerUrl,
+			'source_url' => ($_SERVER['APP_URL'] ?? null) . ($_SERVER['REQUEST_URI'] ?? null)
 		);
 
 		return array_filter($data);
