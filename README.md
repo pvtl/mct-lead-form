@@ -36,3 +36,19 @@ You can copy multisteps form implementation from `https://github.com/pvtl/buyyou
 **Important Notes:**
 If ever you are implementing multistep form you need to include the script to the main script.
 Or if you are having issue with mainmultistep.js file not updating, kindly copy gulp.js line 120 - 139 adjust the code accordingly.
+
+---
+
+## Upgrading
+
+#### 1. Push your updates
+
+#### 2. Update version number
+Update the version number of this plugin from `mct-lead-form.php`.
+
+#### 3. Create version tag
+Create a new tag here `https://github.com/pvtl/mct-lead-form/releases/new`.
+
+#### 4. Update version number from the wordpress site
+The `composer.json` should use the new version number of this plugin.
+Run `composer update pvtl/mct-lead-form` then push your composer lock file.
