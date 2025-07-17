@@ -5,7 +5,7 @@
  * Description: Include Lead Forms on your website.
  * Author: Pivotal Agency
  * Author URI: https://pivotal.agency
- * Version: 1.3.10
+ * Version: 1.3.11
  * Requires at least: 5.4
  * Tested up to: 5.4
  * Requires PHP: 7.2
