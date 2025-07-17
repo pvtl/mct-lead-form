@@ -41,10 +41,10 @@ Or if you are having issue with mainmultistep.js file not updating, kindly copy 
 
 ## Upgrading
 
-#### 1. Push your updates
-
-#### 2. Update version number
+#### 1. Update version number
 Update the version number of this plugin from `mct-lead-form.php`.
+
+#### 2. Push your updates
 
 #### 3. Create version tag
 Create a new tag here `https://github.com/pvtl/mct-lead-form/releases/new`.

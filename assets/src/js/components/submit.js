@@ -57,12 +57,14 @@ const sendRequest = async (container, form) => {
       setState({ email });
 
       dataLayer.push({ email });
+      dataLayer.push({ 'event': 'valuation_form_page1' });
       dataLayer.push({ 'event': 'step1success' });
 
       form.dataset.endpoint = container.querySelector('[data-mct-stage="2"]').dataset.endpoint;
     }
 
     if (stage === 2) {
+      dataLayer.push({ 'event': 'valuation_form_page2' });
       dataLayer.push({ 'event': 'step2success' });
 
       const { email } = getState();
