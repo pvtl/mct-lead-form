@@ -27,6 +27,29 @@ class Form
 	 */
 	public const SHORTCODE = 'mct_lead_form';
 
+	private static $sql_injection_patterns = array(
+		'/\bselect\b\s*\(/i',
+		'/\bunion\b[\s(]+\bselect\b/i',
+		'/\bsleep\s*\(/i',
+		'/\bbenchmark\s*\(/i',
+		'/\bwaitfor\b\s+\bdelay\b/i',
+		'/\bexec(ute)?\s*\(/i',
+		'/\bload_file\s*\(/i',
+		'/\binto\s+(outfile|dumpfile)\b/i',
+		'/\binformation_schema\b/i',
+		'/\bsysdate\s*\(/i',
+		'/\bconcat\s*\(/i',
+		'/\bchar\s*\(\s*\d+/i',
+		'/\bxor\b\s*\(/i',
+		'/\bdrop\b\s+\btable\b/i',
+		'/\binsert\b\s+\binto\b/i',
+		'/\bdelete\b\s+\bfrom\b/i',
+		'/\bupdate\b\s+\bset\b/i',
+		'/\/\*[\'\"!]/s',
+	);
+
+	private static $valid_states = array('ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA');
+
 	/**
 	 * The REST API namespace.
 	 */
@@ -335,7 +358,57 @@ class Form
 	 */
 	public function route_create_lead()
 	{
-		$data = json_decode(file_get_contents('php://input'), true);
+		$raw = json_decode(file_get_contents('php://input'), true);
+
+		if (!is_array($raw)) {
+			return new WP_Error('invalid_data', 'Invalid request data.', array('status' => 400));
+		}
+
+		if (self::contains_suspicious_values($raw)) {
+			return new WP_Error('invalid_input', 'Your submission contains disallowed content.', array('status' => 422));
+		}
+
+		$data = array();
+
+		$data['full_name'] = isset($raw['full_name']) ? sanitize_text_field(substr($raw['full_name'], 0, 100)) : '';
+		$data['email'] = isset($raw['email']) ? sanitize_email($raw['email']) : '';
+		$data['phone_number'] = isset($raw['phone_number']) ? sanitize_text_field(substr($raw['phone_number'], 0, 20)) : '';
+		$data['state'] = isset($raw['state']) && in_array($raw['state'], self::$valid_states, true) ? $raw['state'] : '';
+
+		if (empty($data['full_name']) || !preg_match('/^[\pL\s\'\-\.]+$/u', $data['full_name'])) {
+			return new WP_Error('invalid_name', 'Please enter a valid name.', array('status' => 422));
+		}
+
+		if (empty($data['email']) || !is_email($data['email'])) {
+			return new WP_Error('invalid_email', 'Please enter a valid email address.', array('status' => 422));
+		}
+
+		if (empty($data['phone_number']) || !preg_match('/^[\d\s\+\-\(\)]+$/', $data['phone_number'])) {
+			return new WP_Error('invalid_phone', 'Please enter a valid phone number.', array('status' => 422));
+		}
+
+		if (empty($data['state'])) {
+			return new WP_Error('invalid_state', 'Please select a valid state.', array('status' => 422));
+		}
+
+		if (!empty($raw['source_url'])) {
+			$data['source_url'] = esc_url_raw(substr($raw['source_url'], 0, 500));
+		}
+		if (!empty($raw['referrer_url'])) {
+			$data['referrer_url'] = esc_url_raw(substr($raw['referrer_url'], 0, 500));
+		}
+		if (!empty($raw['gclid'])) {
+			$data['gclid'] = sanitize_text_field(substr($raw['gclid'], 0, 255));
+		}
+		if (!empty($raw['source'])) {
+			$data['source'] = sanitize_text_field(substr($raw['source'], 0, 100));
+		}
+		if (!empty($raw['campaign'])) {
+			$data['campaign'] = sanitize_text_field(substr($raw['campaign'], 0, 255));
+		}
+		if (!empty($raw['additional_data'])) {
+			$data['additional_data'] = sanitize_text_field(substr($raw['additional_data'], 0, 255));
+		}
 
 		return $this->api_request('POST', 'leads', $data);
 	}
@@ -343,17 +416,103 @@ class Form
 	/**
 	 * Handle submission of lead update form.
 	 *
-	 * @param array $data The URL parameter data.
+	 * @param \WP_REST_Request $request The REST request.
 	 *
 	 * @return \WP_REST_Response|WP_Error
 	 */
-	public function route_update_lead($data)
+	public function route_update_lead($request)
 	{
-		$id = (int) $data['id'];
+		$id = (int) $request['id'];
 
-		$data = json_decode(file_get_contents('php://input'), true);
+		$raw = json_decode(file_get_contents('php://input'), true);
+
+		if (!is_array($raw)) {
+			return new WP_Error('invalid_data', 'Invalid request data.', array('status' => 400));
+		}
+
+		if (self::contains_suspicious_values($raw)) {
+			return new WP_Error('invalid_input', 'Your submission contains disallowed content.', array('status' => 422));
+		}
+
+		$valid_transmissions = array('Automatic', 'Manual');
+		$max_year = (int) current_time('Y') + 1;
+
+		$data = array();
+
+		if (isset($raw['vehicle_make'])) {
+			$data['vehicle_make'] = sanitize_text_field(substr($raw['vehicle_make'], 0, 100));
+		}
+		if (isset($raw['vehicle_model'])) {
+			$data['vehicle_model'] = sanitize_text_field(substr($raw['vehicle_model'], 0, 100));
+		}
+		if (isset($raw['vehicle_rego'])) {
+			$data['vehicle_rego'] = sanitize_text_field(substr($raw['vehicle_rego'], 0, 20));
+		}
+		if (isset($raw['vehicle_rego_state']) && in_array($raw['vehicle_rego_state'], self::$valid_states, true)) {
+			$data['vehicle_rego_state'] = $raw['vehicle_rego_state'];
+		}
+		if (isset($raw['vehicle_year'])) {
+			$year = (int) $raw['vehicle_year'];
+			if ($year >= 1900 && $year <= $max_year) {
+				$data['vehicle_year'] = $year;
+			}
+		}
+		if (isset($raw['vehicle_transmission']) && in_array($raw['vehicle_transmission'], $valid_transmissions, true)) {
+			$data['vehicle_transmission'] = $raw['vehicle_transmission'];
+		}
+		if (isset($raw['vehicle_odometer'])) {
+			$odometer = (int) $raw['vehicle_odometer'];
+			if ($odometer >= 0) {
+				$data['vehicle_odometer'] = $odometer;
+			}
+		}
+		if (!empty($raw['other_notes'])) {
+			$data['other_notes'] = sanitize_textarea_field(substr($raw['other_notes'], 0, 2000));
+		}
 
 		return $this->api_request('PATCH', "leads/{$id}", $data);
+	}
+
+	/**
+	 * Check if a string value contains SQL injection patterns.
+	 *
+	 * @param string $value The value to check.
+	 *
+	 * @return bool
+	 */
+	private static function is_suspicious($value)
+	{
+		if (!is_string($value)) {
+			return false;
+		}
+
+		$normalized = preg_replace('/\s+/', ' ', $value);
+
+		foreach (self::$sql_injection_patterns as $pattern) {
+			if (preg_match($pattern, $normalized)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check if any values in an array contain SQL injection patterns.
+	 *
+	 * @param array $data The data to check.
+	 *
+	 * @return bool
+	 */
+	private static function contains_suspicious_values($data)
+	{
+		foreach ($data as $value) {
+			if (is_string($value) && self::is_suspicious($value)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -384,10 +543,12 @@ class Form
 			$domain = str_replace($find, $replace, $link);
 
 			$to = $admin_email ?? 'tech@pvtl.io';
-			$subject = 'Leads Form submission failed by ' . $data['full_name'];
+			$subject = 'Leads Form submission failed by ' . sanitize_text_field($data['full_name'] ?? 'Unknown');
 			$body = '<h3>Failed lead form submission</h3>';
 			foreach ($data as $key => $value) {
-				$body .= '<p><strong>' . ucfirst($key) . '</strong>: ' . $value . '</p>';
+				if (is_string($value)) {
+					$body .= '<p><strong>' . esc_html(ucfirst($key)) . '</strong>: ' . esc_html($value) . '</p>';
+				}
 			}
 			$body .= '<p><i>Error [403]: Cookie check failed (rest_cookie_invalid_nonce).</i></p>';
 			$headers = array(
