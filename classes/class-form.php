@@ -99,6 +99,14 @@ class Form
 
 		add_action('wp_verify_nonce_failed', array($this, 'log_nonce_failed'), 10, 4);
 
+		// Enqueue the attribution cookie bridge on every page — not just pages that
+		// render the shortcode — so a visitor's first paid-ad landing (typically a
+		// campaign page, not the form page) can capture UTM / click-ID params into
+		// mct_* cookies. The form later syncs those cookies into its hidden inputs
+		// which keeps attribution correct even when the form page HTML is served
+		// from a full-page cache (W3 Total Cache / WP Rocket / CloudFront).
+		add_action('wp_enqueue_scripts', array($this, 'enqueue_attribution_script'));
+
 		if (defined('MCT_API_HOST')) {
 			$this->api_host = rtrim(MCT_API_HOST, '/') . '/';
 		}
@@ -232,60 +240,238 @@ class Form
 	}
 
 	/**
-	 * Gets tracking data from google leads and referrer from the request.
+	 * Gets tracking data from the current request for seeding the form's
+	 * hidden attribution inputs.
+	 *
+	 * Resolution order per field (best → last resort):
+	 *  1. Current request's $_GET (direct landing on a URL with UTMs/click IDs).
+	 *  2. Referrer URL's query string (user clicked through from a previous page
+	 *     on which the UTMs were set).
+	 *  3. For `source` specifically, fall back to:
+	 *     a. Referrer-host mapping (google, bing, chatgpt, carsguide, fb, …).
+	 *     b. Paid click-ID inference (gclid → google, msclkid → bing, fbclid → fb).
+	 *     c. "Organic".
+	 *
+	 * NOTE: This PHP path is a server-side fallback. On sites with full-page
+	 * caching (W3 Total Cache / WP Rocket / CloudFront), the rendered HTML —
+	 * including these hidden inputs — can be reused across visitors, so the
+	 * values here may be stale. The companion JS (`attribution-cookies.js`)
+	 * seeds cookies from `window.location.search` on every page, then overrides
+	 * the hidden inputs at DOMContentLoaded. Keep both layers in sync.
 	 *
 	 * @return array
 	 */
 	public function get_tracking_data()
 	{
-		$utmSource = 'Organic';
-		$utmCampaign = null;
-		$utmTerm = null;
+		// Current-request attribution (collapse arrays from bracketed query
+		// params like ?utm_source[0]=google which PHP would otherwise pass
+		// through as arrays and break the CRM's string columns).
+		$utmSource    = self::first_scalar($_GET['utm_source'] ?? null);
+		$utmCampaign  = self::first_scalar($_GET['utm_campaign'] ?? null);
+		$utmTerm      = self::first_scalar($_GET['utm_term'] ?? null);
+		$gclid        = self::first_scalar($_GET['gclid'] ?? null);
+		$fbclid       = self::first_scalar($_GET['fbclid'] ?? null);
+		$msclkid      = self::first_scalar($_GET['msclkid'] ?? null);
 
+		// Referrer fallback — covers the cross-page case where the user
+		// arrived on a campaign page with UTMs, then navigated to the form
+		// page (which has no UTMs in its own URL).
 		$referrerUrl = null;
 		if ($_SERVER['HTTP_REFERER'] ?? false) {
 			$referrerUrl = $_SERVER['HTTP_REFERER'];
 
-			// Get query parameters from the referrer url
 			$parts = parse_url($referrerUrl);
-			$parameters = $parts['query'] ?? '';
-			parse_str($parameters, $query);
+			$query = array();
+			parse_str($parts['query'] ?? '', $query);
 
-			$utmSource = $query['utm_source'] ?? $utmSource;
-			$utmCampaign = $query['utm_campaign'] ?? $utmCampaign;
-			$utmTerm = $query['utm_term'] ?? $utmTerm;
+			$utmSource   = $utmSource   ?: self::first_scalar($query['utm_source'] ?? null);
+			$utmCampaign = $utmCampaign ?: self::first_scalar($query['utm_campaign'] ?? null);
+			$utmTerm     = $utmTerm     ?: self::first_scalar($query['utm_term'] ?? null);
+			$gclid       = $gclid       ?: self::first_scalar($query['gclid'] ?? null);
+			$fbclid      = $fbclid      ?: self::first_scalar($query['fbclid'] ?? null);
+			$msclkid     = $msclkid     ?: self::first_scalar($query['msclkid'] ?? null);
 		}
 
-		if ($_GET['utm_source'] ?? false) {
-			$utmSource = $_GET['utm_source'];
-			if(is_array($utmSource)) {
-				$utmSource = $utmSource[0];
-			}
+		// Resolve source in priority order:
+		//  1. utm_source
+		//  2. referrer host mapping (organic search, AI assistants, marketplaces)
+		//  3. paid click-ID fallback
+		//  4. Organic
+		$source = $utmSource;
+		if (!$source) {
+			$source = self::detect_source_from_referrer($referrerUrl);
 		}
-
-		if ($_GET['utm_campaign'] ?? false) {
-			$utmCampaign = $_GET['utm_campaign'];
-			if(is_array($utmCampaign)) {
-				$utmCampaign = $utmCampaign[0];
-			}
+		if (!$source) {
+			$source = self::infer_source_from_paid_click_ids($gclid, $msclkid, $fbclid);
 		}
-
-		if ($_GET['utm_term'] ?? false) {
-			$utmTerm = $_GET['utm_term'];
-			if(is_array($utmTerm)) {
-				$utmTerm = $utmTerm[0];
-			}
+		if (!$source) {
+			$source = 'Organic';
 		}
 
 		$data = array(
-			'source' => $utmSource,
-			'campaign' => $utmCampaign,
+			'source'          => $source,
+			'campaign'        => $utmCampaign,
 			'additional_data' => $utmTerm,
-			'referrer_url' => $referrerUrl,
-			'source_url' => ($_SERVER['APP_URL'] ?? null) . ($_SERVER['REQUEST_URI'] ?? null)
+			'referrer_url'    => $referrerUrl,
+			'source_url'      => ($_SERVER['APP_URL'] ?? null) . ($_SERVER['REQUEST_URI'] ?? null),
+			'gclid'           => $gclid,
+			'fbclid'          => $fbclid,
+			'msclkid'         => $msclkid,
 		);
 
 		return array_filter($data);
+	}
+
+	/**
+	 * Enqueue the attribution cookie bridge on every page.
+	 *
+	 * The script lives in assets/dist/js/ as a plain ES5 vanilla-JS file so
+	 * it doesn't depend on the Laravel Mix build. It writes mct_* cookies
+	 * from window.location.search and, if a lead form is present on the
+	 * page, also syncs those cookie values into the form's hidden inputs.
+	 */
+	public function enqueue_attribution_script()
+	{
+		wp_enqueue_script(
+			'mct-attribution-cookies',
+			MCT_URL . 'assets/dist/js/attribution-cookies.js',
+			array(),
+			MCT_VERSION,
+			true
+		);
+	}
+
+	/**
+	 * Coerce a value to a single trimmed string, or null if empty.
+	 *
+	 * Defends against malformed query params (e.g. ?utm_source[0]=google
+	 * &utm_source[1]=google produced by misconfigured ad tracking templates)
+	 * which PHP parses into arrays. We take the first non-empty scalar from
+	 * a recursively flattened value.
+	 *
+	 * @param mixed $value The raw input value.
+	 * @return string|null
+	 */
+	private static function first_scalar($value)
+	{
+		if (is_array($value)) {
+			$flat = array();
+			array_walk_recursive($value, function ($v) use (&$flat) {
+				if ($v !== null && $v !== '') {
+					$flat[] = $v;
+				}
+			});
+			$value = !empty($flat) ? $flat[0] : null;
+		}
+
+		if ($value === null) {
+			return null;
+		}
+
+		$value = trim((string) $value);
+
+		return $value === '' ? null : $value;
+	}
+
+	/**
+	 * Infer paid channel from auto-tagged click IDs when utm_source is missing.
+	 *
+	 * Priority: Google Ads (gclid) → Microsoft Ads (msclkid) → Meta (fbclid).
+	 *
+	 * Returns null when nothing is present so the caller can fall back to
+	 * other detection strategies or the "Organic" default.
+	 *
+	 * @param string|null $gclid
+	 * @param string|null $msclkid
+	 * @param string|null $fbclid
+	 * @return string|null
+	 */
+	private static function infer_source_from_paid_click_ids($gclid, $msclkid, $fbclid)
+	{
+		if ($gclid) {
+			return 'google';
+		}
+
+		if ($msclkid) {
+			return 'bing';
+		}
+
+		if ($fbclid) {
+			return 'fb';
+		}
+
+		return null;
+	}
+
+	/**
+	 * Map a referrer URL host to a normalised lead source string.
+	 *
+	 * Checked in priority order so that subdomain-hosted AI assistants
+	 * (e.g. gemini.google.com, copilot.microsoft.com) are classified as
+	 * the AI tool rather than the parent search engine.
+	 *
+	 * Returns null when nothing matches so the caller can fall back to
+	 * its default.
+	 *
+	 * @param string|null $referrerUrl
+	 * @return string|null
+	 */
+	private static function detect_source_from_referrer($referrerUrl)
+	{
+		if (!$referrerUrl) {
+			return null;
+		}
+
+		$host = parse_url($referrerUrl, PHP_URL_HOST);
+		if (!$host) {
+			return null;
+		}
+
+		$host = strtolower($host);
+
+		$rules = array(
+			// AI assistants — must come BEFORE the search engines below
+			// because some (e.g. gemini.google.com) live on search-engine domains.
+			array('needles' => array('chatgpt.com', 'chat.openai.com', 'openai.com'), 'source' => 'chatgpt'),
+			array('needles' => array('perplexity.ai'),                                'source' => 'perplexity'),
+			array('needles' => array('claude.ai', 'anthropic.com'),                   'source' => 'claude'),
+			array('needles' => array('gemini.google.com', 'bard.google.com'),         'source' => 'gemini'),
+			array('needles' => array('copilot.microsoft.com'),                        'source' => 'copilot'),
+
+			// Search engines (organic).
+			// Use lowercase 'google' / 'bing' so the values line up with the
+			// CRM dashboard's Google Ads / Microsoft Ads tiles.
+			array('needles' => array('.google.', 'google.com'),         'source' => 'google'),
+			array('needles' => array('.bing.com', 'bing.com'),          'source' => 'bing'),
+			array('needles' => array('duckduckgo.com'),                 'source' => 'duckduckgo'),
+			array('needles' => array('yahoo.com', 'search.yahoo.com'),  'source' => 'yahoo'),
+			array('needles' => array('yandex.com', 'yandex.ru'),        'source' => 'yandex'),
+
+			// Marketplaces / referrers worth keeping out of "Organic".
+			array('needles' => array('carsguide.com.au'),  'source' => 'CarsGuide'),
+			array('needles' => array('autotrader.com.au'), 'source' => 'Autotrader'),
+			array('needles' => array('gumtree.com.au'),    'source' => 'Gumtree'),
+			array('needles' => array('drive.com.au'),      'source' => 'Drive'),
+
+			// Social referrers (organic).
+			array('needles' => array('facebook.com', 'fb.com', 'm.facebook.com', 'l.facebook.com'), 'source' => 'fb'),
+			array('needles' => array('instagram.com', 'l.instagram.com'),                           'source' => 'ig'),
+			array('needles' => array('linkedin.com', 'lnkd.in'),                                    'source' => 'linkedin'),
+			array('needles' => array('t.co', 'twitter.com', 'x.com'),                               'source' => 'twitter'),
+			array('needles' => array('tiktok.com'),                                                 'source' => 'tiktok'),
+			array('needles' => array('reddit.com', 'old.reddit.com'),                               'source' => 'reddit'),
+			array('needles' => array('youtube.com', 'youtu.be'),                                    'source' => 'youtube'),
+		);
+
+		foreach ($rules as $rule) {
+			foreach ($rule['needles'] as $needle) {
+				if (strpos($host, $needle) !== false) {
+					return $rule['source'];
+				}
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -399,6 +585,12 @@ class Form
 		}
 		if (!empty($raw['gclid'])) {
 			$data['gclid'] = sanitize_text_field(substr($raw['gclid'], 0, 255));
+		}
+		if (!empty($raw['fbclid'])) {
+			$data['fbclid'] = sanitize_text_field(substr($raw['fbclid'], 0, 255));
+		}
+		if (!empty($raw['msclkid'])) {
+			$data['msclkid'] = sanitize_text_field(substr($raw['msclkid'], 0, 255));
 		}
 		if (!empty($raw['source'])) {
 			$data['source'] = sanitize_text_field(substr($raw['source'], 0, 100));
