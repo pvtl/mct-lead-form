@@ -99,6 +99,27 @@ class Form
 
 		add_action('wp_verify_nonce_failed', array($this, 'log_nonce_failed'), 10, 4);
 
+		// Bypass WP's cookie/nonce REST auth for this plugin's routes.
+		//
+		// WP's `rest_cookie_check_errors` rejects any REST request whose
+		// `X-WP-Nonce` header doesn't validate. The form template renders the
+		// nonce server-side and inlines it into the HTML, so on sites that
+		// use full-page caching (WP Rocket / Cloudflare) the same nonce is
+		// served to every anonymous visitor for the lifetime of that cache
+		// entry. WP nonces only live for 24h, so once the cached HTML ages
+		// past the nonce window every submission from that cached page 403s
+		// with `rest_cookie_invalid_nonce` and the user sees a generic
+		// "Uh oh!" error.
+		//
+		// These routes don't need CSRF protection at the WP layer: the
+		// browser request body is validated server-side, and the WP→CRM hop
+		// is authenticated by a Bearer token (`MCT_API_TOKEN`) that the
+		// browser never sees. Skipping cookie/nonce auth here makes the form
+		// cache-safe without weakening anything that was actually protected.
+		//
+		// Priority 5 runs before WP core's `rest_cookie_check_errors` (100).
+		add_filter('rest_authentication_errors', array($this, 'bypass_rest_cookie_auth_for_plugin_routes'), 5);
+
 		// Enqueue the attribution cookie bridge on every page — not just pages that
 		// render the shortcode — so a visitor's first paid-ad landing (typically a
 		// campaign page, not the form page) can capture UTM / click-ID params into
@@ -535,6 +556,58 @@ class Form
 				'permission_callback' => '__return_true',
 			)
 		);
+	}
+
+	/**
+	 * Short-circuit WP's REST cookie/nonce auth for this plugin's routes.
+	 *
+	 * Hooked at priority 5 on `rest_authentication_errors` so it runs before
+	 * core's `rest_cookie_check_errors` (priority 100). Returning `true`
+	 * tells WP "authentication has already succeeded" for this request, which
+	 * skips the nonce check entirely.
+	 *
+	 * We only short-circuit when both the request is non-null (i.e. no other
+	 * filter has already produced an auth error) AND the request URI targets
+	 * one of our `mct/leads` routes. Everything else falls through to the
+	 * default WP behaviour untouched.
+	 *
+	 * @param WP_Error|null|true $result Current auth result from upstream filters.
+	 * @return WP_Error|null|true
+	 */
+	public function bypass_rest_cookie_auth_for_plugin_routes($result)
+	{
+		// An earlier filter already returned an explicit auth result;
+		// respect it rather than overriding.
+		if (!empty($result)) {
+			return $result;
+		}
+
+		$uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+
+		if ($uri === '') {
+			return $result;
+		}
+
+		$namespace = self::REST_API_ROUTE_NAMESPACE;
+
+		// Match both `/wp-json/{ns}/leads` and `/wp-json/{ns}/leads/{id}`,
+		// as well as `?rest_route=/{ns}/leads...` for sites that don't have
+		// pretty permalinks for the REST API.
+		$matches_pretty_url = (bool) preg_match(
+			'#/wp-json/' . preg_quote($namespace, '#') . '/leads(/\d+)?(\?|$|/)#',
+			$uri
+		);
+
+		$matches_query_url = (bool) preg_match(
+			'#[?&]rest_route=/' . preg_quote($namespace, '#') . '/leads(/\d+)?(&|$)#',
+			$uri
+		);
+
+		if ($matches_pretty_url || $matches_query_url) {
+			return true;
+		}
+
+		return $result;
 	}
 
 	/**
