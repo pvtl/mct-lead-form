@@ -28,6 +28,11 @@
 
 		?>
 
+		<?php // Honeypot: hidden from humans and screen readers. Bots that fill all inputs will populate it and be silently rejected server-side. ?>
+		<div class="mct-hp" aria-hidden="true" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;">
+			<input type="text" name="website" tabindex="-1" autocomplete="off" value="">
+		</div>
+
 		<div class="form-group">
 			<input type="text" class="<?php echo esc_attr( $this->attr( 'input_class' ) ); ?>" name="full_name" placeholder="Full Name *" aria-label="Full Name" autocomplete="name" autocapitalize="words" required>
 			<div class="invalid-feedback"></div>
@@ -67,6 +72,11 @@
 	</form>
 
 	<form data-mct-stage="2" data-method="PATCH" data-endpoint="leads/{id}" style="display: none;">
+
+		<?php // Honeypot mirror on stage 2 so the PATCH endpoint is gated identically. ?>
+		<div class="mct-hp" aria-hidden="true" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;">
+			<input type="text" name="website" tabindex="-1" autocomplete="off" value="">
+		</div>
 
 		<div class="form-group">
 			<input type="text" class="<?php echo esc_attr( $this->attr( 'input_class' ) ); ?>" name="vehicle_rego"

@@ -623,6 +623,10 @@ class Form
 			return new WP_Error('invalid_data', 'Invalid request data.', array('status' => 400));
 		}
 
+		if ($this->honeypot_tripped($raw)) {
+			return $this->fake_success_response();
+		}
+
 		if (self::contains_suspicious_values($raw)) {
 			return new WP_Error('invalid_input', 'Your submission contains disallowed content.', array('status' => 422));
 		}
@@ -693,6 +697,10 @@ class Form
 
 		if (!is_array($raw)) {
 			return new WP_Error('invalid_data', 'Invalid request data.', array('status' => 400));
+		}
+
+		if ($this->honeypot_tripped($raw)) {
+			return $this->fake_success_response($id);
 		}
 
 		if (self::contains_suspicious_values($raw)) {
@@ -778,6 +786,58 @@ class Form
 		}
 
 		return false;
+	}
+
+	/**
+	 * Detect a tripped honeypot.
+	 *
+	 * The form template renders a visually-hidden `website` input that real
+	 * users (and screen readers) never interact with. Bots that auto-fill
+	 * every input populate it, which lets us drop the submission server-side
+	 * without ever forwarding it to the CRM.
+	 *
+	 * Side effect: logs the attempt so volume can be monitored.
+	 *
+	 * @param array $raw Raw decoded request body.
+	 * @return bool
+	 */
+	protected function honeypot_tripped($raw)
+	{
+		if (empty($raw['website'])) {
+			return false;
+		}
+
+		$ip = isset($_SERVER['HTTP_CF_CONNECTING_IP'])
+			? $_SERVER['HTTP_CF_CONNECTING_IP']
+			: (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown');
+
+		$this->log(
+			sprintf(
+				'Honeypot tripped — ip: %s, value: %s, ua: %s',
+				$ip,
+				is_string($raw['website']) ? substr($raw['website'], 0, 100) : gettype($raw['website']),
+				isset($_SERVER['HTTP_USER_AGENT']) ? substr($_SERVER['HTTP_USER_AGENT'], 0, 200) : 'unknown'
+			),
+			'success'
+		);
+
+		return true;
+	}
+
+	/**
+	 * Return a benign success-shaped response.
+	 *
+	 * Used when the honeypot trips: returning 200 (instead of 4xx) avoids
+	 * tipping the bot off that the submission was rejected, so it moves on
+	 * rather than escalating. The fake `id` keeps the response schema
+	 * consistent with a real lead create/update without persisting anything.
+	 *
+	 * @param int $id Fake lead id (defaults to 0).
+	 * @return \WP_REST_Response
+	 */
+	protected function fake_success_response($id = 0)
+	{
+		return new WP_REST_Response((object) array('id' => (int) $id), 200);
 	}
 
 	/**
