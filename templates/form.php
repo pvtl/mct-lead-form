@@ -14,8 +14,7 @@
 	<div class="mct-success-message" data-mct-message="success"></div>
 	<div class="mct-error-message" data-mct-message="error"></div>
 
-	<form data-mct-stage="1" data-method="POST" data-endpoint="leads"
-		data-nonce="<?php echo esc_attr( wp_create_nonce( 'wp_rest' ) ); ?>">
+	<form data-mct-stage="1" data-method="POST" data-endpoint="leads">
 
 		<?php
 
@@ -67,8 +66,7 @@
 		</button>
 	</form>
 
-	<form data-mct-stage="2" data-method="PATCH" data-endpoint="leads/{id}"
-		data-nonce="<?php echo esc_attr( wp_create_nonce( 'wp_rest' ) ); ?>" style="display: none;">
+	<form data-mct-stage="2" data-method="PATCH" data-endpoint="leads/{id}" style="display: none;">
 
 		<div class="form-group">
 			<input type="text" class="<?php echo esc_attr( $this->attr( 'input_class' ) ); ?>" name="vehicle_rego"

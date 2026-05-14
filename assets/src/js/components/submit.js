@@ -25,7 +25,6 @@ const sendRequest = async (container, form) => {
   const headers = new Headers({
     'Accept': 'application/json',
     'Content-Type': 'application/json',
-    'X-WP-Nonce': form.dataset.nonce,
   });
 
   try {
