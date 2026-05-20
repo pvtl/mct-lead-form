@@ -52,8 +52,10 @@ const sendRequest = async (container, form) => {
 
     if (stage === 1) {
       const email = form.querySelector('[name="email"]').value;
+      const phoneInput = form.querySelector('[name="phone_number"]');
+      const phone = phoneInput ? phoneInput.value : '';
 
-      setState({ email });
+      setState({ email, phone });
 
       dataLayer.push({ email });
       dataLayer.push({ 'event': 'valuation_form_page1' });
@@ -66,9 +68,25 @@ const sendRequest = async (container, form) => {
       dataLayer.push({ 'event': 'valuation_form_page2' });
       dataLayer.push({ 'event': 'step2success' });
 
-      const { email } = getState();
+      let { email, phone } = getState();
+      const stage1Form = container.querySelector('[data-mct-stage="1"]');
+
+      if (stage1Form) {
+        if (!email) {
+          const emailInput = stage1Form.querySelector('[name="email"]');
+          email = emailInput ? emailInput.value : '';
+        }
+        if (!phone) {
+          const phoneInput = stage1Form.querySelector('[name="phone_number"]');
+          phone = phoneInput ? phoneInput.value : '';
+        }
+      }
 
       try {
+        sessionStorage.setItem(
+          'mct-valuation-user-data',
+          JSON.stringify({ email: email || '', phone_number: phone || '' })
+        );
         window.localStorage.setItem('mct-lead-form-email', email);
       } catch (e) {
         console.warn(e);

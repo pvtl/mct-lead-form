@@ -7,6 +7,7 @@ let state = {
   errorMessage: null,
   errors: null,
   email: null,
+  phone: null,
 };
 
 const getState = () => state;
