@@ -9,7 +9,7 @@
  * Runs on every page and does two things:
  *
  *  1. Captures attribution query params from window.location.search into
- *     short-lived cookies (`mct_utm_source`, `mct_gclid`, etc.). A visitor's
+ *     attribution cookies (`mct_utm_source`, `mct_gclid`, etc.). A visitor's
  *     first paid-ad landing is rarely the form page itself — they usually
  *     arrive on a campaign / home page and click through. Cookies let us
  *     carry attribution across that navigation.
@@ -62,12 +62,19 @@
     document.cookie = name + '=' + value + '; expires=' + expiry.toUTCString() + '; path=/';
   }
 
+  // Attribution must survive the visitor's journey from ad click to form
+  // submission, which often spans days or several sessions. A 1-hour window
+  // dropped the gclid on later submissions, so paid Google leads were logged
+  // with no click id (source "google" but no gclid). 90 days matches Google's
+  // click-attribution window — and the Cars4us site's existing behaviour.
+  var ATTRIBUTION_COOKIE_HOURS = 24 * 90;
+
   // Step 1 — write live URL attribution params into mct_* cookies.
   var params = ['gclid', 'fbclid', 'msclkid', 'utm_source', 'utm_campaign', 'utm_term'];
   for (var i = 0; i < params.length; i++) {
     var value = getParameterByName(params[i]);
     if (value) {
-      setCookie('mct_' + params[i], value, 1);
+      setCookie('mct_' + params[i], value, ATTRIBUTION_COOKIE_HOURS);
     }
   }
 
