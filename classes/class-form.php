@@ -290,9 +290,9 @@ class Form
 		$utmSource    = self::first_scalar($_GET['utm_source'] ?? null);
 		$utmCampaign  = self::first_scalar($_GET['utm_campaign'] ?? null);
 		$utmTerm      = self::first_scalar($_GET['utm_term'] ?? null);
-		$gclid        = self::first_scalar($_GET['gclid'] ?? null);
-		$fbclid       = self::first_scalar($_GET['fbclid'] ?? null);
-		$msclkid      = self::first_scalar($_GET['msclkid'] ?? null);
+		$gclid        = self::clean_click_id($_GET['gclid'] ?? null);
+		$fbclid       = self::clean_click_id($_GET['fbclid'] ?? null);
+		$msclkid      = self::clean_click_id($_GET['msclkid'] ?? null);
 
 		// Referrer fallback — covers the cross-page case where the user
 		// arrived on a campaign page with UTMs, then navigated to the form
@@ -308,9 +308,9 @@ class Form
 			$utmSource   = $utmSource   ?: self::first_scalar($query['utm_source'] ?? null);
 			$utmCampaign = $utmCampaign ?: self::first_scalar($query['utm_campaign'] ?? null);
 			$utmTerm     = $utmTerm     ?: self::first_scalar($query['utm_term'] ?? null);
-			$gclid       = $gclid       ?: self::first_scalar($query['gclid'] ?? null);
-			$fbclid      = $fbclid      ?: self::first_scalar($query['fbclid'] ?? null);
-			$msclkid     = $msclkid     ?: self::first_scalar($query['msclkid'] ?? null);
+			$gclid       = $gclid       ?: self::clean_click_id($query['gclid'] ?? null);
+			$fbclid      = $fbclid      ?: self::clean_click_id($query['fbclid'] ?? null);
+			$msclkid     = $msclkid     ?: self::clean_click_id($query['msclkid'] ?? null);
 		}
 
 		// Resolve source in priority order:
@@ -392,6 +392,32 @@ class Form
 		$value = trim((string) $value);
 
 		return $value === '' ? null : $value;
+	}
+
+	/**
+	 * Reduce a click ID to its leading run of valid characters.
+	 *
+	 * gclid and fbclid are URL-safe base64 tokens and msclkid is hex, so any
+	 * other character means the value was fused with more URL. Ads sometimes
+	 * land with the page fragment percent-encoded into the query
+	 * (?gclid=XXX%23free-valuation%3Futm_source%3Dgoogle); PHP decodes that to
+	 * "XXX#free-valuation?utm_source=google" and sanitize_text_field() on the
+	 * still-encoded form strips the %xx octets into "XXXfree-valuationutm_sourcegoogle".
+	 * Google Ads rejects both as an unparseable gclid. Returns null when nothing
+	 * valid is left.
+	 *
+	 * @param mixed $value The raw input value (string or bracketed array).
+	 * @return string|null
+	 */
+	private static function clean_click_id($value)
+	{
+		$value = self::first_scalar($value);
+
+		if ($value === null) {
+			return null;
+		}
+
+		return preg_match('/^[A-Za-z0-9_-]+/', $value, $matches) ? $matches[0] : null;
 	}
 
 	/**
@@ -660,14 +686,11 @@ class Form
 		if (!empty($raw['referrer_url'])) {
 			$data['referrer_url'] = esc_url_raw(substr($raw['referrer_url'], 0, 500));
 		}
-		if (!empty($raw['gclid'])) {
-			$data['gclid'] = sanitize_text_field(substr($raw['gclid'], 0, 255));
-		}
-		if (!empty($raw['fbclid'])) {
-			$data['fbclid'] = sanitize_text_field(substr($raw['fbclid'], 0, 255));
-		}
-		if (!empty($raw['msclkid'])) {
-			$data['msclkid'] = sanitize_text_field(substr($raw['msclkid'], 0, 255));
+		foreach (array('gclid', 'fbclid', 'msclkid') as $click_id_field) {
+			$click_id = self::clean_click_id($raw[$click_id_field] ?? null);
+			if ($click_id !== null) {
+				$data[$click_id_field] = substr($click_id, 0, 255);
+			}
 		}
 		if (!empty($raw['source'])) {
 			$data['source'] = sanitize_text_field(substr($raw['source'], 0, 100));

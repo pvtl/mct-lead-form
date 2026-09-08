@@ -49,6 +49,25 @@
     return null;
   }
 
+  /**
+   * Reduce a click ID to its leading run of valid characters.
+   *
+   * gclid and fbclid are URL-safe base64 tokens and msclkid is hex, so any
+   * other character means the value was fused with more URL. Ads sometimes
+   * land with the page fragment percent-encoded into the query
+   * (?gclid=XXX%23free-valuation%3Futm_source%3Dgoogle): the regex above
+   * cannot see that as a fragment, decodes it, and the CRM would receive
+   * "XXX#free-valuation?utm_source=google", which Google Ads rejects as an
+   * unparseable gclid. Returns null when nothing valid is left.
+   */
+  function cleanClickId(value) {
+    if (!value) return null;
+    var match = /^[A-Za-z0-9_-]+/.exec(value);
+    return match ? match[0] : null;
+  }
+
+  var CLICK_ID_PARAMS = { gclid: true, fbclid: true, msclkid: true };
+
   function getCookie(name) {
     var value = '; ' + document.cookie;
     var parts = value.split('; ' + name + '=');
@@ -73,6 +92,9 @@
   var params = ['gclid', 'fbclid', 'msclkid', 'utm_source', 'utm_campaign', 'utm_term'];
   for (var i = 0; i < params.length; i++) {
     var value = getParameterByName(params[i]);
+    if (CLICK_ID_PARAMS[params[i]]) {
+      value = cleanClickId(value);
+    }
     if (value) {
       setCookie('mct_' + params[i], value, ATTRIBUTION_COOKIE_HOURS);
     }
@@ -102,6 +124,11 @@
           if (!INPUT_TO_COOKIE.hasOwnProperty(inputName)) continue;
 
           var cookieValue = getCookie(INPUT_TO_COOKIE[inputName]);
+          // Cookies written before this guard existed can still hold a
+          // fused value for up to 90 days, so clean on the way out too.
+          if (CLICK_ID_PARAMS[inputName]) {
+            cookieValue = cleanClickId(cookieValue);
+          }
           if (!cookieValue) continue;
 
           var existing = form.querySelector('input[name="' + inputName + '"]');
