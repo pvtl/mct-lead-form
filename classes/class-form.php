@@ -649,8 +649,8 @@ class Form
 			return new WP_Error('invalid_data', 'Invalid request data.', array('status' => 400));
 		}
 
-		if ($this->honeypot_tripped($raw)) {
-			return $this->fake_success_response();
+		if ($this->honeypot_tripped($raw) || $this->referrer_is_foreign()) {
+			return $this->reject_request();
 		}
 
 		if (self::contains_suspicious_values($raw)) {
@@ -672,8 +672,8 @@ class Form
 			return new WP_Error('invalid_email', 'Please enter a valid email address.', array('status' => 422));
 		}
 
-		if (empty($data['phone_number']) || !preg_match('/^[\d\s\+\-\(\)]+$/', $data['phone_number'])) {
-			return new WP_Error('invalid_phone', 'Please enter a valid phone number.', array('status' => 422));
+		if (empty($data['phone_number']) || !self::is_australian_phone_number($data['phone_number'])) {
+			return new WP_Error('invalid_phone', 'Please enter a valid Australian phone number, e.g. 0412 345 678.', array('status' => 422));
 		}
 
 		if (empty($data['state'])) {
@@ -722,8 +722,8 @@ class Form
 			return new WP_Error('invalid_data', 'Invalid request data.', array('status' => 400));
 		}
 
-		if ($this->honeypot_tripped($raw)) {
-			return $this->fake_success_response($id);
+		if ($this->honeypot_tripped($raw) || $this->referrer_is_foreign()) {
+			return $this->reject_request();
 		}
 
 		if (self::contains_suspicious_values($raw)) {
@@ -830,14 +830,10 @@ class Form
 			return false;
 		}
 
-		$ip = isset($_SERVER['HTTP_CF_CONNECTING_IP'])
-			? $_SERVER['HTTP_CF_CONNECTING_IP']
-			: (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown');
-
 		$this->log(
 			sprintf(
 				'Honeypot tripped — ip: %s, value: %s, ua: %s',
-				$ip,
+				self::client_ip(),
 				is_string($raw['website']) ? substr($raw['website'], 0, 100) : gettype($raw['website']),
 				isset($_SERVER['HTTP_USER_AGENT']) ? substr($_SERVER['HTTP_USER_AGENT'], 0, 200) : 'unknown'
 			),
@@ -848,19 +844,122 @@ class Form
 	}
 
 	/**
-	 * Return a benign success-shaped response.
+	 * Detect a lead request whose Referer names another site.
 	 *
-	 * Used when the honeypot trips: returning 200 (instead of 4xx) avoids
-	 * tipping the bot off that the submission was rejected, so it moves on
-	 * rather than escalating. The fake `id` keeps the response schema
-	 * consistent with a real lead create/update without persisting anything.
+	 * The form's own fetch() always sends the page it runs on as the Referer,
+	 * so a Referer from any other host means the request was not made by a
+	 * page on this site. The CarBuyersAus bot of Sep/Oct 2026 forced
+	 * "Referer: https://www.bing.com/" on every request, including these
+	 * API calls. A missing Referer is allowed because privacy tools strip it.
+	 * The www prefix is ignored so apex and www hosts match each other.
 	 *
-	 * @param int $id Fake lead id (defaults to 0).
-	 * @return \WP_REST_Response
+	 * Side effect: logs the attempt so volume can be monitored.
+	 *
+	 * @return bool
 	 */
-	protected function fake_success_response($id = 0)
+	protected function referrer_is_foreign()
 	{
-		return new WP_REST_Response((object) array('id' => (int) $id), 200);
+		$referrer = isset($_SERVER['HTTP_REFERER']) ? trim((string) $_SERVER['HTTP_REFERER']) : '';
+
+		if ($referrer === '') {
+			return false;
+		}
+
+		$site_hosts = array(
+			self::bare_host(wp_parse_url(home_url(), PHP_URL_HOST)),
+			self::bare_host(wp_parse_url(site_url(), PHP_URL_HOST)),
+		);
+
+		if (in_array(self::bare_host(wp_parse_url($referrer, PHP_URL_HOST)), $site_hosts, true)) {
+			return false;
+		}
+
+		$this->log(
+			sprintf(
+				'Foreign referrer dropped: ip: %s, referrer: %s, ua: %s',
+				self::client_ip(),
+				substr($referrer, 0, 200),
+				isset($_SERVER['HTTP_USER_AGENT']) ? substr($_SERVER['HTTP_USER_AGENT'], 0, 200) : 'unknown'
+			),
+			'success'
+		);
+
+		return true;
+	}
+
+	/**
+	 * Lowercase a host name and drop a leading "www.".
+	 *
+	 * @param string|null|false $host The host from wp_parse_url().
+	 * @return string Empty string when there is no host.
+	 */
+	private static function bare_host($host)
+	{
+		$host = strtolower((string) $host);
+
+		return strpos($host, 'www.') === 0 ? substr($host, 4) : $host;
+	}
+
+	/**
+	 * Check that a phone number is a plausible Australian number.
+	 *
+	 * Spaces, hyphens, dots and brackets are ignored. Accepted:
+	 *  - 02/03/04/07/08 numbers with 8 digits after the code,
+	 *    e.g. 0412 345 678 or (02) 9876 5432.
+	 *  - The same with +61, 61 or 0061 in front, with or without the 0,
+	 *    e.g. +61 412 345 678 or +61 (0)412 345 678.
+	 *  - The same with the leading 0 missing, e.g. 412 345 678. People type
+	 *    mobiles this way and some of those leads became purchases.
+	 *  - 1300/1800 numbers and 13 numbers.
+	 *
+	 * Tested against a year of real CarBuyersAus and BuyYourCar leads: none
+	 * that became a purchase would have been rejected. The ones that are
+	 * rejected are mostly mobiles with a digit missing or extra, which the
+	 * buying team could not call anyway. Overseas numbers, as used by the
+	 * Sep/Oct 2026 bot, are rejected.
+	 *
+	 * @param string $phone The phone number as typed.
+	 * @return bool
+	 */
+	private static function is_australian_phone_number($phone)
+	{
+		$digits = preg_replace('/[\s\-\.\(\)]+/', '', (string) $phone);
+
+		return (bool) preg_match('/^(?:(?:\+|00)?610?|0)?[2-478]\d{8}$/', $digits)
+			|| (bool) preg_match('/^1[38]00\d{6}$/', $digits)
+			|| (bool) preg_match('/^13\d{4}$/', $digits);
+	}
+
+	/**
+	 * The visitor's IP address, preferring the one Cloudflare passes on.
+	 *
+	 * @return string
+	 */
+	private static function client_ip()
+	{
+		if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+			return $_SERVER['HTTP_CF_CONNECTING_IP'];
+		}
+
+		return isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown';
+	}
+
+	/**
+	 * Reject a request the bot checks have caught.
+	 *
+	 * A real error (not a fake success) so the form script stops at the
+	 * current step and pushes nothing to the dataLayer: GA4 and the ad
+	 * platforms then never count the attempt as a form submission. Up to
+	 * 1.6.3 the honeypot returned a fake 200 to avoid tipping bots off, but
+	 * that let every caught attempt register as a step 1 submission in
+	 * analytics, and the bots that matter adapt either way. The message is
+	 * deliberately vague; the reason is in the plugin log.
+	 *
+	 * @return WP_Error
+	 */
+	protected function reject_request()
+	{
+		return new WP_Error('request_rejected', 'Your submission could not be processed.', array('status' => 403));
 	}
 
 	/**
