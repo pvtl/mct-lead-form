@@ -28,7 +28,7 @@
 
 		?>
 
-		<?php // Honeypot: hidden from humans and screen readers. Bots that fill all inputs will populate it and be silently rejected server-side. ?>
+		<?php // Honeypot: hidden from humans and screen readers. Bots that fill all inputs will populate it and be rejected server-side. ?>
 		<div class="mct-hp" aria-hidden="true" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;">
 			<input type="text" name="website" tabindex="-1" autocomplete="off" value="">
 		</div>

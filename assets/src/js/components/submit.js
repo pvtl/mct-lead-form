@@ -40,6 +40,14 @@ const sendRequest = async (container, form) => {
 
     setState({ errors });
 
+    // The plugin's own validation errors (invalid_phone, invalid_email, ...)
+    // carry a message written for the visitor, so show it as is.
+    if (code !== null && code.indexOf('invalid_') === 0 && message) {
+      setState({ errorMessage: message });
+
+      return;
+    }
+
     if ((message !== null && message === 'Unauthenticated.') || code !== null) {
       throw new Error();
     }
