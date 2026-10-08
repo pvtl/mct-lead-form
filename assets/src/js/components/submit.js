@@ -115,7 +115,7 @@ const sendRequest = async (container, form) => {
 };
 
 export default async (container, form) => {
-  const { submitting } = getState();
+  const { submitting, stage } = getState();
 
   if (submitting) {
     return;
@@ -126,4 +126,15 @@ export default async (container, form) => {
   await sendRequest(container, form);
 
   setState({ submitting: false }, () => render(container));
+
+  // Tell the page how the submission went. Theme scripts that animate to
+  // the next step as soon as the button is clicked use the error event to
+  // bring the current step back when the server rejects the submission.
+  const { errorMessage, errors } = getState();
+  const failed = errorMessage !== null || errors !== null;
+
+  container.dispatchEvent(new CustomEvent(failed ? 'mct-lead-form:error' : 'mct-lead-form:success', {
+    bubbles: true,
+    detail: { stage, errorMessage, errors },
+  }));
 };
